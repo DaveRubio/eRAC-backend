@@ -15,6 +15,7 @@ return Application::configure(basePath: dirname(__DIR__))
         // Register your custom middleware
         $middleware->alias([
             'auth.barangay' => \App\Http\Middleware\AuthTokenValid::class,
+            'auth.admin' => \App\Http\Middleware\AdminAuthTokenValid::class,
         ]);
 
         // If using Sanctum, you can also add:

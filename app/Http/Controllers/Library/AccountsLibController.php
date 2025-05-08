@@ -6,6 +6,8 @@ use App\Http\Controllers\Controller;
 use App\Models\FiscalYear;
 use App\Models\LibExpense;
 use App\Models\LibExpenseClass;
+use App\Models\LibExpenseItem;
+use App\Models\LibExpenseType;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
@@ -36,13 +38,13 @@ public function getFiscalYears()
     );
 }
 
-// Create a new fiscal year
+
 public function createFiscalYear(Request $request)
 {
     $this->verifyBarangayAccess();
     $barangayId = Auth::user()->barangay_id;
 
-    $validated = $request->validate([
+    $validated = $request->validate([  
         'year' => [
             'required',
             'digits:4',
@@ -62,101 +64,158 @@ public function createFiscalYear(Request $request)
 }
 
 // Copy fiscal year data
-    public function copyFiscalYear(Request $request, $barangayId, $sourceYearId)
-    {
-        $request->validate([
-            'target_year' => [
-                'required',
-                'digits:4',
-                Rule::unique('fiscal_years')->where(function ($query) use ($barangayId) {
-                    return $query->where('barangay_id', $barangayId);
-                })
+  // Add this to your ExpenseClassController.php
+public function copyToYear(Request $request, $sourceYearId)
+{
+    $this->verifyBarangayAccess();
+    $barangayId = Auth::user()->barangay_id;
+
+    $request->validate([
+        'target_year_id' => 'required|exists:lib_fiscal_years,id',
+        'class_ids' => 'required|array',
+        'class_ids.*' => 'exists:lib_expense_classes,id,fiscal_year_id,'.$sourceYearId
+    ]);
+
+    DB::beginTransaction();
+    try {
+        \Log::info('Starting year copy', [
+            'source_year_id' => $sourceYearId,
+            'target_year_id' => $request->target_year_id,
+            'class_ids' => $request->class_ids
+        ]);
+
+        $stats = [
+            'copied_classes' => 0,
+            'copied_types' => 0,
+            'skipped_classes' => 0,
+            'skipped_types' => 0
+        ];
+
+        foreach ($request->class_ids as $classId) {
+            $sourceClass = LibExpenseClass::with('types')
+                ->where('fiscal_year_id', $sourceYearId)
+                ->findOrFail($classId);
+
+            // Check for duplicate class name in target year
+            if (LibExpenseClass::where('fiscal_year_id', $request->target_year_id)
+                ->where('name', $sourceClass->name)
+                ->exists()) {
+                $stats['skipped_classes']++;
+                continue;
+            }
+
+            // Copy class
+            $newClass = $sourceClass->replicate();
+            $newClass->fiscal_year_id = $request->target_year_id;
+            $newClass->save();
+            $stats['copied_classes']++;
+
+            // Copy types
+            foreach ($sourceClass->types as $type) {
+                if (LibExpenseType::where('expense_class_id', $newClass->id)
+                    ->where('name', $type->name)
+                    ->exists()) {
+                    $stats['skipped_types']++;
+                    continue;
+                }
+
+                $newType = $type->replicate();
+                $newType->expense_class_id = $newClass->id;
+                $newType->save();
+                $stats['copied_types']++;
+            }
+        }
+        
+        DB::commit();
+
+         \Log::info('Copy completed successfully', [
+            'stats' => $stats,
+            'response_data' => [
+                'success' => true,
+                'message' => 'Copy completed successfully',
+                'stats' => $stats
             ]
         ]);
 
-        $sourceYear = FiscalYear::where('barangay_id', $barangayId)
-            ->findOrFail($sourceYearId);
-
-        $newYear = FiscalYear::create([
-            'barangay_id' => $barangayId,
-            'year' => $request->target_year,
-            'is_active' => false
+        return response()->json([
+            'success' => true,
+            'message' => 'Copy completed successfully',
+            'stats' => $stats
         ]);
 
-        // Copy expense classes and their relationships
-        $sourceClasses = LibExpenseClass::where('fiscal_year_id', $sourceYearId)
-            ->with('types.items')
-            ->get();
-
-        foreach ($sourceClasses as $class) {
-            $newClass = $class->replicate();
-            $newClass->fiscal_year_id = $newYear->id;
-            $newClass->push();
-
-            foreach ($class->types as $type) {
-                $newType = $type->replicate();
-                $newType->expense_class_id = $newClass->id;
-                $newType->push();
-
-                foreach ($type->items as $item) {
-                    $newItem = $item->replicate();
-                    $newItem->expense_type_id = $newType->id;
-                    $newItem->save();
-                }
-            }
-        }
+     } catch (\Exception $e) {
+        DB::rollBack();
+        \Log::error('Copy failed', [
+            'error' => $e->getMessage(),
+            'stack' => $e->getTraceAsString(),
+            'request' => $request->all()
+        ]);
 
         return response()->json([
-            'message' => 'Year copied successfully',
-            'year' => $newYear
-        ]);
+            'success' => false,
+            'message' => 'Failed to copy data',
+            'error' => $e->getMessage()
+        ], 500);
     }
-
+}
     // =============================================
     // Expense Class Methods
     // =============================================
 
 
      public function getExpenseClasses()
-    {
-        $this->verifyBarangayAccess();
-        $barangayId = Auth::user()->barangay_id;
+{
+    $this->verifyBarangayAccess();
+    $barangayId = Auth::user()->barangay_id;
+    $fiscalYearId = request('fiscal_year_id');
 
-        return response()->json(
-            LibExpenseClass::where('barangay_id', $barangayId)
-                ->with('types') // Eager load types
-                ->orderBy('order')
-                ->get()
-        );
-    }
+    $classes = LibExpenseClass::where('barangay_id', $barangayId)
+        ->when($fiscalYearId, function($query) use ($fiscalYearId) {
+            $query->where('fiscal_year_id', $fiscalYearId);
+        })
+        ->with('types')
+        ->orderBy('order')
+        ->get();
 
+    return response()->json([
+        'success' => true,
+        'data' => $classes
+    ]);
+}
    public function createExpenseClass(Request $request)
-    {
-        $this->verifyBarangayAccess();
-        $barangayId = Auth::user()->barangay_id;
+{
+    $this->verifyBarangayAccess();
+    $barangayId = Auth::user()->barangay_id;
 
-        $validated = $request->validate([
-            'fiscal_year_id' => 'required|exists:lib_fiscal_years,id',
-            'name' => [
-                'required',
-                'max:255',
-                Rule::unique('lib_expense_classes')->where(function ($query) use ($barangayId, $request) {
-                    return $query->where('barangay_id', $barangayId)
-                                ->where('fiscal_year_id', $request->fiscal_year_id);
-                })
-            ],
-            'order' => 'sometimes|integer'
-        ]);
+    $validated = $request->validate([
+        'fiscal_year_id' => [
+            'required',
+            Rule::exists('lib_fiscal_years', 'id')->where(function ($query) use ($barangayId) {
+                $query->where('barangay_id', $barangayId);
+            })
+        ],
+        'name' => [
+            'required',
+            'max:255',
+            Rule::unique('lib_expense_classes')->where(function ($query) use ($barangayId, $request) {
+                return $query->where('barangay_id', $barangayId)
+                            ->where('fiscal_year_id', $request->fiscal_year_id);
+            })
+        ],
 
-        $class = LibExpenseClass::create([
-            'barangay_id' => $barangayId,
-            'fiscal_year_id' => $validated['fiscal_year_id'],
-            'name' => $validated['name'],
-            'order' => $validated['order'] ?? 0
-        ]);
+        'order' => 'sometimes|integer'
+    ]);
 
-        return response()->json($class, 201);
-    }
+    $class = LibExpenseClass::create([
+        'barangay_id' => $barangayId,
+        'fiscal_year_id' => $validated['fiscal_year_id'],
+        'name' => $validated['name'],
+        'order' => LibExpenseClass::where('fiscal_year_id', $validated['fiscal_year_id'])
+            ->count()
+    ]);
+
+    return response()->json($class, 201);
+}
 
 
  public function updateClass(Request $request, $classId)
@@ -208,6 +267,28 @@ public function createFiscalYear(Request $request)
     return response()->json(['message' => 'Class deleted successfully']);
 }
 
+public function updateTypeOrder(Request $request)
+{
+    $this->verifyBarangayAccess();
+    $barangayId = Auth::user()->barangay_id;
+
+    $request->validate([
+        'classes' => 'required|array',
+        'classes.*.id' => 'required|exists:lib_expense_classes,id',
+        'classes.*.order' => 'required|integer'
+    ]);
+
+    DB::transaction(function () use ($request, $barangayId) {
+        foreach ($request->classes as $classData) {
+            LibExpenseClass::forBarangay($barangayId)
+                ->where('id', $classData['id'])
+                ->update(['order' => $classData['order']]);
+        }
+    });
+
+    return response()->json(['message' => 'Order updated successfully']);
+}
+
     //Exepnse Type Methods
 
  public function getExpenseTypes($classId)
@@ -229,35 +310,35 @@ public function createFiscalYear(Request $request)
     }
 
 // Create a new expense type
- public function createExpenseType(Request $request, $classId)
-    {
-        $this->verifyBarangayAccess();
-        $barangayId = Auth::user()->barangay_id;
+public function createExpenseType(Request $request, $classId)
+{
+    $this->verifyBarangayAccess();
+    $barangayId = Auth::user()->barangay_id;
 
-        // Verify the class belongs to this barangay
-        $class = LibExpenseClass::where('barangay_id', $barangayId)
-            ->findOrFail($classId);
+    $validated = $request->validate([
+        'name' => [
+            'required',
+            'max:255',
+            Rule::unique('lib_expense_types')->where(function ($query) use ($classId) {
+                return $query->where('expense_class_id', $classId);
+            })
+        ],
+        'order' => 'sometimes|integer',
+    ]);
 
-        $validated = $request->validate([
-            'name' => [
-                'required',
-                'max:255',
-                Rule::unique('lib_expense_types')->where(function ($query) use ($classId) {
-                    return $query->where('expense_class_id', $classId);
-                })
-            ],
-            'order' => 'sometimes|integer'
-        ]);
+    $type = LibExpenseType::create([
+        'expense_class_id' => $classId,
+        'name' => $validated['name'],
+        'order' => LibExpenseType::where('expense_class_id', $classId)
+            ->count()
+    ]);
 
-        $type = $class->types()->create([
-            'name' => $validated['name'],
-            'order' => $validated['order'] ?? 0
-        ]);
+    return response()->json($type->load('items'), 201);
+}
 
-        return response()->json($type, 201);
-    }
 
-   public function updateType(Request $request, $classId, $typeId)
+
+  public function updateExpenseType(Request $request, $classId, $typeId)
 {
     $this->verifyBarangayAccess();
     $barangayId = Auth::user()->barangay_id;
@@ -272,13 +353,11 @@ public function createFiscalYear(Request $request)
                     return $query->where('expense_class_id', $classId);
                 })
         ],
-        'order' => 'sometimes|integer'
+        'order' => 'sometimes|integer',
     ]);
 
     $type = LibExpenseType::where('expense_class_id', $classId)
-        ->whereHas('expenseClass', function ($q) use ($barangayId) {
-            $q->where('barangay_id', $barangayId);
-        })
+        ->whereHas('expenseClass', fn($q) => $q->where('barangay_id', $barangayId))
         ->findOrFail($typeId);
 
     $type->update($validated);
@@ -287,6 +366,7 @@ public function createFiscalYear(Request $request)
 }
 
 
+    // Delete an expense type
     public function deleteType($classId, $typeId)
 {
     $this->verifyBarangayAccess();
@@ -306,6 +386,30 @@ public function createFiscalYear(Request $request)
 
     return response()->json(['message' => 'Type deleted successfully']);
 }
+//Sotrtable
+public function updateOrder(Request $request, $classId)
+{
+    $this->verifyBarangayAccess();
+    $barangayId = Auth::user()->barangay_id;
+
+    $request->validate([
+        'types' => 'required|array',
+        'types.*.id' => 'required|exists:lib_expense_types,id',
+        'types.*.order' => 'required|integer'
+    ]);
+
+    DB::transaction(function () use ($request, $barangayId, $classId) {
+        foreach ($request->types as $typeData) {
+            LibExpenseType::forBarangay($barangayId)
+                ->where('id', $typeData['id'])
+                ->where('expense_class_id', $classId)
+                ->update(['order' => $typeData['order']]);
+        }
+    });
+
+    return response()->json(['message' => 'Type order updated successfully']);
+}
+
     // =============================================
     // Expense Item Methods
     // =============================================
@@ -403,6 +507,8 @@ public function createFiscalYear(Request $request)
 
     return response()->json(['message' => 'Item deleted successfully']);
 }
+
+
 
 
 }

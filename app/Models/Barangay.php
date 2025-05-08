@@ -22,6 +22,16 @@ class Barangay extends Model
         return $this->hasMany(BarangayUser::class);
     }
 
+    public function expenseClasses()
+    {
+        return $this->hasMany(ExpenseClass::class);
+    }
+
+    public function appropriations()
+    {
+        return $this->hasMany(Appropriation::class);
+    }
+
     // Helper to get all barangays for dropdown
     public static function dropdown()
     {

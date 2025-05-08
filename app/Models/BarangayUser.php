@@ -52,7 +52,7 @@ class BarangayUser extends Authenticatable
         return $this->role === 'admin';
     }
 
-     // Check if user is approved
+      //Check if user is approved
     //public function isApproved()
     //{
        // return $this->is_approved;

@@ -2,15 +2,23 @@
 
 namespace App\Models;
 
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 
 class LibExpenseClass extends Model
 {
-   // Relationships
-     public function barangay()
+    // Relationships
+    public function barangay()
     {
         return $this->belongsTo(Barangay::class);
     }
+
+    protected $fillable = [
+        'barangay_id',
+        'fiscal_year_id',
+        'name',
+        'order',
+    ];
 
     public function fiscalYear()
     {
@@ -50,4 +58,3 @@ class LibExpenseClass extends Model
         return $query->where('is_active', true);
     }
 }
-
