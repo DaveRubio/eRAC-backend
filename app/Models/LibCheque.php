@@ -8,21 +8,22 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class LibCheque extends Model
 {
-    protected $table = 'lib_cheque'; // Note: matches your migration table name
+    protected $table = 'lib_cheque';
 
     protected $fillable = [
         'bank_id',
+        'booklet_id',
         'cheque_number',
         'cheque_status'
     ];
 
-    protected $casts = [
-        'created_at' => 'datetime',
-        'updated_at' => 'datetime',
-    ];
-
     public function bank(): BelongsTo
     {
-        return $this->belongsTo(LibBank::class, 'bank_id');
+        return $this->belongsTo(LibBank::class);
+    }
+
+    public function booklet(): BelongsTo
+    {
+        return $this->belongsTo(LibBooklet::class);
     }
 }

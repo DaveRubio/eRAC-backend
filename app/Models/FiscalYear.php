@@ -8,7 +8,7 @@ use Illuminate\Database\Eloquent\Model;
 class FiscalYear extends Model
 {
     use HasFactory;
-    
+
    protected $table = 'lib_fiscal_years';
 
     protected $fillable = [
@@ -32,4 +32,9 @@ class FiscalYear extends Model
     {
         return $this->hasMany(Appropriation::class);
     }
+
+    public function getYearValidationAttribute()
+    {
+    return $this->created_at->format('Y') == $this->year;
+}
 }

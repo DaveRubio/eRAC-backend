@@ -74,6 +74,12 @@ Route::prefix('barangay')->group(function () {
     Route::get('banks/{bank}/cheques', [BankLibraryController::class, 'getBankCheques']);
     Route::post('banks/{bank}/cheques', [BankLibraryController::class, 'createCheque']);
 
+    Route::get('banks/{bank}/booklets', [BankLibraryController::class, 'getBankBooklets']);
+    Route::post('banks/{bank}/booklets', [BankLibraryController::class, 'createBooklet']);
+   // In routes/api.php
+   Route::get('/booklets/{bookletId}/cheques', [BankLibraryController::class, 'getBookletCheques'])
+   ->where('bookletId', '[0-9]+'); // Ensure numeric ID only
+
 
 
     //Transaction Appropriation
@@ -86,6 +92,7 @@ Route::prefix('barangay')->group(function () {
     // Allocation endpoints
     Route::get('budgets/{budget}/allocations', [AppropriationController::class, 'getBudgetAllocations']);
     Route::post('budgets/{budget}/allocate', [AppropriationController::class, 'saveAllocation']);
+    Route::get('budgets/{id}/history', [AppropriationController::class, 'getAllocationHistory']);
 });
 });
 

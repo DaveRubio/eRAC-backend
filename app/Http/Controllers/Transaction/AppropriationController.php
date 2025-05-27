@@ -52,6 +52,8 @@ use Illuminate\Validation\Rule;
         $budgets = $query->orderBy('created_at', 'desc')
             ->get()
             ->map(function($budget) {
+                $hasAllocations = $budget->tranAppropriations->isNotEmpty();
+
                 return [
                     'id' => $budget->id,
                     'date' => $budget->created_at->format('Y-m-d'),
@@ -60,6 +62,7 @@ use Illuminate\Validation\Rule;
                     'unappropriated' => (float)$budget->current_amount,
                     'fiscal_year' => $budget->fiscalYear->year,
                     'allocations' => $budget->tranAppropriations->map(function($tranAppropriations) {
+
                         return [
                             'id' => $tranAppropriations->id,
                             'amount' => (float)$tranAppropriations->amount,
@@ -275,4 +278,72 @@ public function saveAllocation(Request $request, Budget $budget)
             });
         }
 
+        // Add this method to your AppropriationController
+        public function getAllocationHistory($budgetId)
+        {
+            try {
+                // Get the budget with all related appropriations
+                $budget = Budget::with([
+                    'tranAppropriations' => function($query) {
+                        $query->with([
+                            'expenseClass:id,name',
+                            'expenseType:id,name,expense_class_id',
+                            'expenseItem:id,name,expense_type_id'
+                        ])->orderBy ('created_at', 'desc');
+                    },
+                    'fiscalYear'
+                ])->findOrFail($budgetId);
+
+                // Group by allocation date (session)
+                $groupedHistory = $budget->tranAppropriations->groupBy(function($item) {
+                    return $item->created_at->format('Y-m-d H:i:s');
+                });
+
+                // Format response with ALL historical records
+                $history = $groupedHistory->map(function($allocations, $date) use ($budget) {
+                    return [
+                        'date' => $date,
+                        'created_at' => $allocations->first()->created_at,
+                        'total_allocated' => $allocations->sum('amount'),
+                        'allocations' => $allocations->map(function($alloc) {
+                            // Get hierarchy info
+                            $expenseClass = $alloc->expenseClass ??
+                                           ($alloc->expenseType->expenseClass ??
+                                           ($alloc->expenseItem->expenseType->expenseClass ?? null));
+
+                            $expenseType = $alloc->expenseType ??
+                                          ($alloc->expenseItem->expenseType ?? null);
+
+                            return [
+                                'id' => $alloc->id,
+                                'amount' => (float)$alloc->amount,
+                                'expense_class_id' => $expenseClass->id ?? null,
+                                'expense_class_name' => $expenseClass->name ?? null,
+                                'expense_type_id' => $expenseType->id ?? null,
+                                'expense_type_name' => $expenseType->name ?? null,
+                                'expense_item_id' => $alloc->expense_item_id,
+                                'expense_item_name' => $alloc->expenseItem->name ?? null,
+                            ];
+                        }),
+                        'remaining_unappropriated' => $budget->current_amount
+                    ];
+                })->values();
+
+                return response()->json([
+                    'status' => true,
+                    'data' => [
+                        'budget' => $budget->only(['id', 'description', 'original_amount', 'current_amount']),
+                        'fiscal_year' => $budget->fiscalYear->year ?? null,
+                        'history' => $history,
+                        'total_allocated_to_date' => $budget->tranAppropriations->sum('amount')
+                    ]
+                ]);
+
+            } catch (\Exception $e) {
+                return response()->json([
+                    'status' => false,
+                    'message' => 'Failed to fetch allocation history: ' . $e->getMessage()
+                ], 500);
+            }
+        }
     }

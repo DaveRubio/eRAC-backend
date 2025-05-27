@@ -23,9 +23,21 @@ class LibBank extends Model
         'updated_at' => 'datetime',
     ];
 
-    public function cheques(): HasMany
+    public function cheques(): HasThrough
+{
+    return $this->hasManyThrough(
+        LibCheque::class,
+        LibBooklet::class,
+        'bank_id', // Foreign key on booklets table
+        'booklet_id', // Foreign key on cheques table
+        'id', // Local key on banks table
+        'id' // Local key on booklets table
+    );
+}
+
+    public function booklets(): HasMany
     {
-        return $this->hasMany(LibCheque::class, 'bank_id');
+        return $this->hasMany(LibBooklet::class, 'bank_id');
     }
 
     public function barangay()

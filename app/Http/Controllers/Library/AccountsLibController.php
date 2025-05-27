@@ -12,6 +12,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
+use Carbon\Carbon;
 
 class AccountsLibController extends Controller
 {
@@ -44,7 +45,7 @@ public function createFiscalYear(Request $request)
     $this->verifyBarangayAccess();
     $barangayId = Auth::user()->barangay_id;
 
-    $validated = $request->validate([  
+    $validated = $request->validate([
         'year' => [
             'required',
             'digits:4',
@@ -57,7 +58,9 @@ public function createFiscalYear(Request $request)
     $year = FiscalYear::create([
         'barangay_id' => $barangayId,
         'year' => $validated['year'],
-        'is_active' => false
+        'is_active' => false,
+        // Add this to ensure created_at is set
+        'created_at' => now()
     ]);
 
     return response()->json($year, 201);
@@ -125,7 +128,7 @@ public function copyToYear(Request $request, $sourceYearId)
                 $stats['copied_types']++;
             }
         }
-        
+
         DB::commit();
 
          \Log::info('Copy completed successfully', [
