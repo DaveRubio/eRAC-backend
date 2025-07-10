@@ -16,13 +16,12 @@ return new class extends Migration
 
             $table->foreignId('booklet_id')->constrained('lib_booklet')->onDelete('cascade');
 
-            $table->string('cheque_number')->unique();
+            $table->string('cheque_number');
 
             $table->enum('status', ['unused', 'issued', 'void'])->default('unused');
 
             $table->timestamps();
         });
-
     }
 
     /**

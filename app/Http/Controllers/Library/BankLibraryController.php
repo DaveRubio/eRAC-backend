@@ -289,7 +289,7 @@ public function createBooklet(Request $request, LibBank $bank)
     // Start database transaction
     DB::beginTransaction();
     try {
-        // Create the booklet
+        // Create the booklet first (without cheques)
         $booklet = $bank->booklets()->create([
             'booklet_numb' => $validated['starting_cheque_numb'] . '-' . $validated['ending_cheque_numb'],
             'starting_cheque_numb' => $validated['starting_cheque_numb'],
@@ -298,20 +298,27 @@ public function createBooklet(Request $request, LibBank $bank)
             'status' => 'unused',
         ]);
 
-        // Generate cheque numbers
-        $cheques = [];
+        // Generate and validate cheque numbers one by one
         for ($i = $start; $i <= $end; $i++) {
-            $cheques[] = [
-                'booklet_id' => $booklet->id,
-                'cheque_number' => str_pad($i, 8, '0', STR_PAD_LEFT),
-                'status' => 'unused',
-                'created_at' => now(),
-                'updated_at' => now(),
-            ];
-        }
+            $chequeNumber = str_pad($i, 8, '0', STR_PAD_LEFT);
 
-        // Bulk insert cheques
-        LibCheque::insert($cheques);
+            // Check if this cheque number exists in ANY booklet of THIS bank
+            $exists = LibCheque::whereHas('booklet', function($query) use ($bank) {
+                    $query->where('bank_id', $bank->id);
+                })
+                ->where('cheque_number', $chequeNumber)
+                ->exists();
+
+            if ($exists) {
+                throw new \Exception("Cheque number {$chequeNumber} already exists in this bank");
+            }
+
+            // Create cheque with original 8-digit number
+            $booklet->cheques()->create([
+                'cheque_number' => $chequeNumber,
+                'status' => 'unused',
+            ]);
+        }
 
         DB::commit();
 
