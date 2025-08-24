@@ -11,16 +11,12 @@ return new class extends Migration
      */
     public function up(): void
     {
-        Schema::create('lib_cheque', function (Blueprint $table) {
-            $table->id();
-
-            $table->foreignId('booklet_id')->constrained('lib_booklet')->onDelete('cascade');
-
-            $table->string('cheque_number');
-
-            $table->enum('status', ['unused', 'issued', 'void'])->default('unused');
-
-            $table->timestamps();
+         Schema::create('lib_cheque', function (Blueprint $table) {
+        $table->id();
+        $table->foreignId('booklet_id')->constrained('lib_booklet');
+        $table->string('cheque_number');
+        $table->enum('cheque_status', ['unused', 'used'])->default('unused');
+        $table->timestamps();
         });
     }
 
